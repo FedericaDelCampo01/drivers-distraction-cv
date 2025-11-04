@@ -21,15 +21,16 @@ class_map_10:
   c8: 8
   c9: 9
 
-image_size: 224
-batch_size: 64
-num_workers: 4
+image_size: 128        # reducimos resolución de 224 → 128
+batch_size: 8          # bajamos el tamaño del batch para CPU
+num_workers: 2         # menos hilos, evita sobrecarga
 
 train:
-  epochs: 2
+  epochs: 2            # mantenemos 2 épocas para ver rendimiento
   lr: 0.0003
   weight_decay: 0.0001
   scheduler: cosine
+
 
 augmentations:
   train:
