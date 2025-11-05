@@ -15,7 +15,7 @@ class DriverDataset(Dataset):
             self.config = yaml.safe_load(f)
 
         self.split = split
-        self.task = self.config["task"]  # levels3 o classes10
+        self.task = self.config["task"]  # "levels3" o "classes10"
         self.transforms = self._build_transforms(split)
 
     def _build_transforms(self, split):
@@ -24,8 +24,9 @@ class DriverDataset(Dataset):
 
         if split == "train":
             return A.Compose([
-                A.Resize(height=256, width=256),
-                A.RandomResizedCrop(height=h, width=w, scale=(0.8, 1.0)),
+                A.Resize(256, 256),
+                # ✅ Albumentations 2.x usa 'size' como tuple
+                A.RandomResizedCrop(size=(h, w), scale=(0.8, 1.0)),
                 A.HorizontalFlip(p=0.5),
                 A.ColorJitter(
                     brightness=0.2,
@@ -43,8 +44,9 @@ class DriverDataset(Dataset):
             ])
         else:
             return A.Compose([
-                A.Resize(height=256, width=256),
-                A.CenterCrop(height=h, width=w),
+                A.Resize(256, 256),
+                # ✅ CenterCrop ahora recibe directamente (h, w)
+                A.CenterCrop(h, w),
                 A.Normalize(
                     mean=(0.485, 0.456, 0.406),
                     std=(0.229, 0.224, 0.225)

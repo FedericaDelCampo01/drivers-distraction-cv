@@ -7,7 +7,8 @@ from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 import yaml
 from src.data.dataset import DriverDataset
-from torchvision.models.vision_transformer import VisionTransformer
+from torchvision.models import vit_b_16, ViT_B_16_Weights
+
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device):
     model.train()
@@ -25,6 +26,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device):
         all_labels.extend(labels.cpu().numpy())
     return total_loss / len(dataloader.dataset), accuracy_score(all_labels, all_preds)
 
+
 def validate(model, dataloader, criterion, device):
     model.eval()
     total_loss, all_preds, all_labels = 0, [], []
@@ -39,12 +41,13 @@ def validate(model, dataloader, criterion, device):
             all_labels.extend(labels.cpu().numpy())
     return total_loss / len(dataloader.dataset), accuracy_score(all_labels, all_preds), all_preds, all_labels
 
+
 def main():
     with open("src/configs/base.yaml", "r") as f:
         config = yaml.safe_load(f)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🚀 Training Vision Transformer on {device}")
+    print(f"🚀 Training Vision Transformer (pretrained) on {device}")
 
     batch_size = config["batch_size"]
     num_epochs = config["train"]["epochs"]
@@ -56,16 +59,11 @@ def main():
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=2)
 
-    # === Modelo: Vision Transformer liviano (128x128) ===
-    model = VisionTransformer(
-        image_size=128,
-        patch_size=16,
-        num_layers=12,
-        num_heads=12,
-        hidden_dim=768,
-        mlp_dim=3072,
-        num_classes=num_classes
-    ).to(device)
+    # === Modelo: Vision Transformer con preentrenamiento ===
+    weights = ViT_B_16_Weights.IMAGENET1K_V1
+    model = vit_b_16(weights=weights)
+    model.heads.head = nn.Linear(model.heads.head.in_features, num_classes)
+    model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=float(config["train"]["lr"]))
@@ -80,9 +78,10 @@ def main():
         if val_acc > best_acc:
             best_acc = val_acc
             os.makedirs("models", exist_ok=True)
-            torch.save(model.state_dict(), "models/best_vit_b16.pth")
+            torch.save(model.state_dict(), "models/best_vit_b16_pretrained.pth")
 
     print(f"\n✅ Training complete. Best Val Accuracy: {best_acc:.4f}")
+
 
 if __name__ == "__main__":
     main()
