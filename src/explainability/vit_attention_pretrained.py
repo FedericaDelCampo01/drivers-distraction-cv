@@ -27,42 +27,43 @@ model.eval()
 ds = DriverDataset("data/interim/test.csv", split="val")
 
 # === Helper para obtener atención ===
+
 def get_attention_map(model, image_tensor):
-    """Extrae y promedia los mapas de atención del ViT (soporta PyTorch 2.x)."""
-    attention_mats = []
-
-    def hook_fn(module, input, output):
-        # Capturamos el output que es una tupla (out, attn_weights) o solo out
-        if isinstance(output, tuple) and output[1] is not None:
-            attn_weights = output[1]  # [batch, num_heads, tokens, tokens]
-            attention_mats.append(attn_weights.detach().cpu())
-
-    handles = []
-    for blk in model.encoder.layers:
-        # Registramos el hook en la capa MultiheadAttention
-        handles.append(blk.self_attention.register_forward_hook(hook_fn))
+    """Extrae mapas de atención del ViT (torchvision 0.18 / torch 2.8)."""
+    model.eval()
+    attn_maps = []
 
     with torch.no_grad():
-        # Forzamos a devolver los pesos de atención
-        _ = model.encoder(model.encoder.pos_embedding + model.encoder.dropout(model.encoder.ln(model.encoder.layers[0](model._process_input(image_tensor.unsqueeze(0).to(device))))))
-        # En algunos casos este método directo no es necesario; pero garantiza la propagación completa
+        # Preprocesar imagen
+        x = model._process_input(image_tensor.unsqueeze(0))
+        n, _, _ = x.shape
+        cls_token = model.class_token.expand(n, -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
+        x = x + model.encoder.pos_embedding
+        x = model.encoder.dropout(x)
 
-    for h in handles:
-        h.remove()
+        # Iterar sobre los bloques del encoder
+        for blk in model.encoder.layers:
+            # Obtener pesos de atención explícitos
+            attn_out, attn_weights = blk.self_attention(
+                blk.ln_1(x), blk.ln_1(x), blk.ln_1(x),
+                need_weights=True, average_attn_weights=False
+            )
+            attn_maps.append(attn_weights.detach().cpu())
 
-    if len(attention_mats) == 0:
-        print("⚠️ No se capturaron pesos de atención — revisá versión de TorchVision.")
-        return np.zeros((224, 224))
+            # Forward residual + MLP
+            x = x + blk.dropout(attn_out)
+            x = x + blk.mlp(blk.ln_2(x))
 
-    # Promediamos sobre capas y cabezas
-    attn = torch.stack(attention_mats).mean(0).mean(1)[0]  # [tokens, tokens]
-    attn = attn[0, 1:]  # quitamos el token CLS
+        # Promediar las atenciones (capas y cabezas)
+        attn = torch.stack(attn_maps).mean(0).mean(1)[0]  # [tokens, tokens]
+        attn = attn[0, 1:]  # quitar CLS
 
-    side = int(np.sqrt(attn.shape[0]))
-    attn_map = attn.reshape(side, side).numpy()
-    attn_map = cv2.resize(attn_map, (224, 224))
-    attn_map = (attn_map - attn_map.min()) / (attn_map.max() - attn_map.min() + 1e-8)
-    return attn_map
+        side = int(np.sqrt(attn.shape[0]))
+        attn_map = attn.reshape(side, side).numpy()
+        attn_map = cv2.resize(attn_map, (224, 224))
+        attn_map = (attn_map - attn_map.min()) / (attn_map.max() - attn_map.min() + 1e-8)
+        return attn_map
 
 
 # === Generar y guardar ejemplos ===
